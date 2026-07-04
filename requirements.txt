@@ -1,0 +1,5 @@
+# Streamlit virtualenv packages
+streamlit
+pandas
+numpy
+altair
