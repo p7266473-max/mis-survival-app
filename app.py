@@ -8,33 +8,37 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Theme overrides using HTML injection for premium look
+# Theme overrides using HTML injection for premium look (Light Mode)
 st.markdown("""
 <style>
     .reportview-container {
-        background: #111216;
+        background: #f8fafc;
     }
     .stApp {
-        background-color: #0f1015;
-        color: #e2e8f0;
+        background-color: #f1f5f9;
+        color: #1e293b;
     }
     h1, h2, h3 {
-        color: #00ffcc !important;
+        color: #0f172a !important;
         font-family: 'Courier New', Courier, monospace;
+        font-weight: 700;
     }
     .survival-card {
-        background-color: #1a1c23;
-        border: 1px solid #334155;
+        background-color: #ffffff;
+        border: 1px solid #cbd5e1;
         border-radius: 8px;
         padding: 20px;
         margin-bottom: 15px;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
     }
     .alert-banner {
-        background-color: #7f1d1d;
+        background-color: #fef2f2;
         border-left: 5px solid #ef4444;
+        color: #991b1b;
         padding: 15px;
         border-radius: 4px;
         margin-bottom: 20px;
+        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.05);
     }
 </style>
 """, unsafe_allow_html=True)
