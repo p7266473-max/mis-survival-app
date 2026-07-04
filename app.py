@@ -1,3 +1,5 @@
+import streamlit as st
+
 st.set_page_config(
     page_title="MIS / IT Operations Academic Portal",
     page_icon="🎓",
