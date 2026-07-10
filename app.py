@@ -1,632 +1,466 @@
-"""
-Future Resume Architect (BSc Computer Science Edition)
-==============================================================
-Production-ready Streamlit application that generates a 3-year future resume
-for students, including free open-source courses they need to complete.
-"""
-
-import logging
+import streamlit as st
+import pandas as pd
+import datetime
 import os
 
-import streamlit as st
-
-from core.prompts import (
-    APP_TITLE,
-    APP_SUBTITLE,
-    APP_ICON,
-    THEMES,
-    CAREER_OPTIONS,
-)
-from core.engine import (
-    get_gemini_client,
-    run_research_pass,
-    run_extraction_pass,
-    run_enhancement_pass,
-)
-from core.doc_maker import (
-    generate_docx_bytes,
-    generate_markdown,
-    generate_ats_text,
-)
-
-# ============================================================
-# LOGGING
-# ============================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("resume_architect")
-
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
+# Page Configuration
 st.set_page_config(
-    page_title=APP_TITLE,
-    page_icon=APP_ICON,
+    page_title="Survival Kingdom Economic Portal",
+    page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ============================================================
-# CSS
-# ============================================================
-
+# Theme & Custom Styles
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-
-  html, body, .stApp {
-    font-family: 'Inter', sans-serif !important;
-    background: #FAFAFA;
-    color: #1A1A1A;
-  }
-
-  /* ---- Hero ---- */
-  .hero-container {
-    text-align: center;
-    padding: 3rem 1rem 2rem;
-    background: url('https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?ixlib=rb-4.0.3&auto=format&fit=crop&w=1600&q=80') no-repeat center center;
-    background-size: cover;
-    border-radius: 20px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.08);
-    margin-bottom: 3rem;
-    border: 1px solid #EAEAEA;
-    position: relative;
-    overflow: hidden;
-  }
-  
-  .hero-overlay {
-    background: rgba(255, 255, 255, 0.90);
-    backdrop-filter: blur(10px);
-    padding: 3.5rem 2rem;
-    border-radius: 16px;
-    margin: 1rem auto;
-    max-width: 850px;
-    border: 1px solid rgba(212, 175, 55, 0.4);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-  }
-
-  .hero-title {
-    font-family: 'Playfair Display', serif;
-    font-size: 3.8rem;
-    font-weight: 700;
-    color: #0A192F;
-    letter-spacing: -0.5px;
-    line-height: 1.2;
-    margin-bottom: 1rem;
-  }
-  
-  .hero-title span {
-    background: linear-gradient(135deg, #D4AF37 0%, #AA8000 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .hero-sub {
-    font-size: 1.25rem;
-    color: #4A5568;
-    font-weight: 400;
-    margin: 0 auto;
-    max-width: 650px;
-    line-height: 1.6;
-  }
-
-  /* ---- Primary button ---- */
-  div.stButton > button {
-    background: linear-gradient(135deg, #D4AF37 0%, #B8860B 100%) !important;
-    color: #FFFFFF !important;
-    border: none !important;
-    padding: 1rem 2.5rem !important;
-    font-size: 1.25rem !important;
-    font-weight: 700 !important;
-    border-radius: 50px !important;
-    width: 100% !important;
-    box-shadow: 0 10px 25px rgba(212, 175, 55, 0.4) !important;
-    transition: all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
-    letter-spacing: 0.5px !important;
-    text-transform: uppercase;
-  }
-  div.stButton > button:hover {
-    transform: translateY(-4px) !important;
-    box-shadow: 0 15px 35px rgba(212, 175, 55, 0.6) !important;
-  }
-  div.stButton > button:active { transform: translateY(2px) !important; }
-
-  /* ---- Download buttons ---- */
-  div.stDownloadButton > button {
-    background: #0A192F !important;
-    color: #D4AF37 !important;
-    border: 1px solid #D4AF37 !important;
-    padding: 0.8rem 1.8rem !important;
-    font-size: 1.05rem !important;
-    font-weight: 600 !important;
-    border-radius: 12px !important;
-    width: 100% !important;
-    box-shadow: 0 8px 20px rgba(10, 25, 47, 0.15) !important;
-    transition: all 0.25s ease !important;
-  }
-  div.stDownloadButton > button:hover {
-    background: #112240 !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 12px 28px rgba(10, 25, 47, 0.25) !important;
-  }
-
-  /* ---- Sidebar ---- */
-  section[data-testid="stSidebar"] {
-    background: #F4F7F6;
-    border-right: 1px solid #E2E8F0;
-  }
-  section[data-testid="stSidebar"] .stMarkdown {
-    color: #2D3748;
-  }
-
-  /* ---- Text area & Multiselect ---- */
-  .stTextArea textarea, .stMultiSelect div[data-baseweb="select"] {
-    background: #FFFFFF !important;
-    color: #1A202C !important;
-    border-radius: 12px !important;
-    font-size: 1.05rem !important;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02) !important;
-  }
-
-  /* ---- Expander ---- */
-  .streamlit-expanderHeader {
-    background: #FFFFFF !important;
-    border: 1px solid #E2E8F0 !important;
-    border-radius: 12px !important;
-    font-weight: 600 !important;
-    color: #0A192F !important;
-  }
-
-  /* ---- Divider ---- */
-  .glow-divider {
-    border: none;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #D4AF37 30%, #AA8000 70%, transparent);
-    margin: 2.5rem 0;
-    opacity: 0.6;
-  }
-
-  /* ---- Tag chips ---- */
-  .skill-chip {
-    display: inline-block;
-    background: #FDFBF7;
-    color: #AA8000;
-    border: 1px solid rgba(212, 175, 55, 0.4);
-    border-radius: 999px;
-    padding: 6px 18px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin: 4px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-  }
-  
-  /* Additional polish */
-  div[data-testid="stMarkdownContainer"] h2, div[data-testid="stMarkdownContainer"] h3, div[data-testid="stMarkdownContainer"] h4 {
-    color: #0A192F !important;
-    font-family: 'Playfair Display', serif;
-  }
+    body {
+        background-color: #111111;
+        color: #EEEEEE;
+    }
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: #E5C158;
+        margin-bottom: 0.2rem;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .subtitle {
+        font-size: 1.1rem;
+        color: #888888;
+        margin-bottom: 1.5rem;
+    }
+    .group-card {
+        background-color: #1A1A1A;
+        border: 1px solid #333333;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        transition: all 0.3s ease;
+    }
+    .group-card:hover {
+        border-color: #E5C158;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(229, 193, 88, 0.25);
+    }
+    .lead-badge {
+        background: linear-gradient(135deg, #E5C158 0%, #AA8000 100%);
+        color: #111111;
+        font-weight: bold;
+        padding: 0.25rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        display: inline-block;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+    }
+    .member-item {
+        color: #CCCCCC;
+        font-size: 0.95rem;
+        margin-bottom: 0.3rem;
+    }
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #1A1A1A;
+        color: #777777;
+        text-align: center;
+        padding: 0.5rem;
+        font-size: 0.85rem;
+        border-top: 1px solid #333333;
+        z-index: 100;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# HEADER
-# ============================================================
+# App Header
+st.markdown('<div class="main-title">🛡️ Survival Kingdom Economic Portal</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Off-Grid Ledger, Sector assignments & Gold Valuation System (2029–2035)</div>', unsafe_allow_html=True)
 
-st.markdown("""
-<div class="hero-container">
-  <div class="hero-overlay">
-    <div class="hero-title">Design Your <span>Future Resume</span></div>
-    <p class="hero-sub">Select your dream career stream, and we will architect the exact resume you'll have in 3 years—complete with the free online certifications you need to take to get there.</p>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+# Setup paths and locate CSV
+filename = "global_survival_economy_2029_2035.csv"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(current_dir, filename)
 
-# ============================================================
-# PREVIEW
-# ============================================================
+# Load data helper
+@st.cache_data
+def load_data(path):
+    if not os.path.exists(path):
+        return None
+    data = pd.read_csv(path)
+    data["Date"] = pd.to_datetime(data["Date"])
+    return data
 
-def render_preview(data: dict) -> None:
-    """Render a rich, read-only in-app preview of the resume."""
-    with st.expander("📄 Future Resume Preview", expanded=True):
-        name = data.get("Name", "").strip()
-        if name:
-            st.markdown(f"<h2 style='text-align:center; font-size: 2.5rem; margin-bottom: 0;'>{name}</h2>", unsafe_allow_html=True)
-        
-        contact_items = [
-            data.get("Location", ""), data.get("Phone", ""),
-            data.get("Email", ""), data.get("LinkedIn", "")
-        ]
-        contact_line = "  &nbsp;|&nbsp;  ".join(f"{c}" for c in contact_items if c)
-        if contact_line:
-            st.markdown(f"<p style='text-align:center; color:#555;'>{contact_line}</p>", unsafe_allow_html=True)
-        
-        st.markdown('<hr class="glow-divider" style="margin: 1rem 0;">', unsafe_allow_html=True)
+df = load_data(csv_path)
 
-        st.markdown("### 📋 Executive Summary")
-        st.info(data.get("Summary", ""))
-        
-        st.markdown('<hr class="glow-divider" style="margin: 1.5rem 0;">', unsafe_allow_html=True)
+# Group Assignments Data
+group_assignments = [
+    {
+        "id": 1,
+        "name": "Group 1: Consolidation",
+        "sector": "Consolidation",
+        "lead": "Thanishvel Mogam",
+        "members": ["Thanishvel Mogam", "Jeremy Matthews Thomas", "Ajwaad Mahbub Karim", "Intan Syazana"],
+        "icon": "💼",
+        "resource": "Gold Assets"
+    },
+    {
+        "id": 2,
+        "name": "Group 2: Rice / Flour",
+        "sector": "Rice / Flour",
+        "lead": "Rejoice Kandemiri",
+        "members": ["Dehemi Amanda", "Rejoice Kandemiri", "Darrshnee"],
+        "icon": "🌾",
+        "resource": "Rice & Flour"
+    },
+    {
+        "id": 3,
+        "name": "Group 3: Spices",
+        "sector": "Spices",
+        "lead": "Fahim Sahriar Ponno",
+        "members": ["Fahim Sahriar Ponno", "Eithi Noor Jahan", "Rifat Md", "Joy Chandra Das", "Zannat Zamman"],
+        "icon": "🌶️",
+        "resource": "Spices"
+    },
+    {
+        "id": 4,
+        "name": "Group 4: Vegetables",
+        "sector": "Vegetables",
+        "lead": "Farhad Niloy",
+        "members": ["Raj Malo (Himangshu)", "Farhad Niloy", "Sagor Mollah", "Shawon Sorif"],
+        "icon": "🥦",
+        "resource": "Vegetables"
+    },
+    {
+        "id": 5,
+        "name": "Group 5: Fruits",
+        "sector": "Fruits",
+        "lead": "Jishan Ahamed Himel",
+        "members": ["Akter Khusbu", "Md Shahik Khan Hemel", "Md Rimon", "Jishan Ahamed Himel", "Biraj Sarker"],
+        "icon": "🍎",
+        "resource": "Fruits"
+    },
+    {
+        "id": 6,
+        "name": "Group 6: Electricity",
+        "sector": "Electricity",
+        "lead": "Arpita Roy Joya",
+        "members": ["Arpita Roy Joya", "Tanvire Anwaro Ivan", "Rahi Al Md Jameal Kawsar", "Sohanur Rahman"],
+        "icon": "⚡",
+        "resource": "Power / Grid"
+    },
+    {
+        "id": 7,
+        "name": "Group 7: Fuel",
+        "sector": "Fuel",
+        "lead": "Sofiq",
+        "members": ["Salam", "Utsa", "Sofiq", "Zaman Uddin Sarker", "Sayed"],
+        "icon": "⛽",
+        "resource": "Fuel / Biofuel"
+    },
+    {
+        "id": 8,
+        "name": "Group 8: Furniture / Utensils",
+        "sector": "Furniture / Utensils",
+        "lead": "Hasan Murad",
+        "members": ["Abdul Azim", "Hasan Murad", "Tanjil", "Wazed", "Rabbi"],
+        "icon": "🪑",
+        "resource": "Utensils & Furniture"
+    },
+    {
+        "id": 9,
+        "name": "Group 9: Clothes",
+        "sector": "Clothes",
+        "lead": "Ishtiaq Ahamed Swapneel",
+        "members": ["Afsana Akter Borsha", "Angelo Tirtho Khan", "Fatema Begum", "Ishtiaq Ahamed Swapneel"],
+        "icon": "👕",
+        "resource": "Apparel & Fabric"
+    },
+    {
+        "id": 10,
+        "name": "Group 10: Meat",
+        "sector": "Meat",
+        "lead": "Eshwary",
+        "members": ["Eshwary", "Parveer"],
+        "icon": "🥩",
+        "resource": "Meat / Livestock"
+    }
+]
 
-        st.markdown("### 💻 Academic & Personal Projects")
-        for exp in data.get("Experience", []):
-            role = exp.get('Role', '')
-            company = exp.get('Company', '')
-            duration = exp.get('Duration', '')
-            
-            st.markdown(f"**{role}** &nbsp;|&nbsp; *{company}* <span style='float:right;'>*{duration}*</span>", unsafe_allow_html=True)
-            
-            for ach in exp.get("Achievements", []):
-                st.markdown(f"- {ach}")
-            st.markdown("")
-        
-        st.markdown('<hr class="glow-divider" style="margin: 1.5rem 0;">', unsafe_allow_html=True)
+# Sidebar Configuration
+st.sidebar.header("Navigation & Settings")
+st.sidebar.info("Operational Status: OFF-GRID ECONOMY ACTIVE")
 
-        st.markdown("### 🛠️ Core Competencies")
-        skills_html = "".join(f'<span class="skill-chip">{s}</span>' for s in data.get("Skills", []))
-        st.markdown(skills_html, unsafe_allow_html=True)
-        
-        st.markdown('<hr class="glow-divider" style="margin: 1.5rem 0;">', unsafe_allow_html=True)
-
-        st.markdown("### 🎓 Education & Open-Source Certifications")
-        st.caption("Complete these free courses over the next 2 years to make this resume a reality!")
-        for edu in data.get("Education", []):
-            st.markdown(f"- **{edu}**")
-
-# ============================================================
-# EDITABLE FIELDS
-# ============================================================
-
-def render_editable_fields(data: dict) -> dict:
-    """Display editable Streamlit widgets pre-filled with AI output."""
-    st.markdown("### ✏️ Customize Your Future Profile")
-    st.caption("Fill in the blanks (like target companies or university names) before exporting.")
-
-    edited = dict(data)
-
-    with st.expander("👤 Contact Information", expanded=False):
-        c1, c2 = st.columns(2)
-        edited["Name"] = c1.text_input("Full Name", value=data.get("Name", ""), key="edit_name")
-        edited["Email"] = c2.text_input("Email", value=data.get("Email", ""), key="edit_email")
-        c3, c4 = st.columns(2)
-        edited["Phone"] = c3.text_input("Phone", value=data.get("Phone", ""), key="edit_phone")
-        edited["Location"] = c4.text_input("Location", value=data.get("Location", ""), key="edit_location")
-        edited["LinkedIn"] = st.text_input("LinkedIn URL", value=data.get("LinkedIn", ""), key="edit_linkedin")
-
-    with st.expander("📋 Executive Summary", expanded=False):
-        edited["Summary"] = st.text_area(
-            "Summary",
-            value=data.get("Summary", ""),
-            height=150,
-            key="edit_summary",
-        )
-
-    with st.expander("💻 Academic & Personal Projects", expanded=False):
-        edited_exp: list[dict] = []
-        for i, exp in enumerate(data.get("Experience", [])):
-            st.markdown(f"**Project {i+1}**")
-            ec1, ec2, ec3 = st.columns([3, 3, 2])
-            role = ec1.text_input("Project Name", value=exp.get("Role", ""), key=f"role_{i}")
-            company = ec2.text_input("Context (e.g. Capstone)", value=exp.get("Company", ""), key=f"company_{i}")
-            duration = ec3.text_input("Duration", value=exp.get("Duration", ""), key=f"duration_{i}")
-            achievements_text = st.text_area(
-                "Achievements (one per line)",
-                value="\n".join(exp.get("Achievements", [])),
-                height=180,
-                key=f"achievements_{i}",
-            )
-            edited_exp.append({
-                "Role": role,
-                "Company": company,
-                "Duration": duration,
-                "Achievements": [a.strip() for a in achievements_text.split("\n") if a.strip()],
-            })
-            st.markdown("---")
-        edited["Experience"] = edited_exp
-
-    with st.expander("🛠️ Core Competencies", expanded=False):
-        skills_text = st.text_area(
-            "Skills (one per line)",
-            value="\n".join(data.get("Skills", [])),
-            height=150,
-            key="edit_skills",
-        )
-        edited["Skills"] = [s.strip() for s in skills_text.split("\n") if s.strip()]
-
-    with st.expander("🎓 Education & Certifications", expanded=False):
-        edu_text = st.text_area(
-            "Education (one per line)",
-            value="\n".join(data.get("Education", [])),
-            height=120,
-            key="edit_education",
-        )
-        edited["Education"] = [e.strip() for e in edu_text.split("\n") if e.strip()]
-
-    return edited
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-st.sidebar.markdown("## ⚙️ Configuration")
-
-api_key: str = st.sidebar.text_input(
-    "🔑 Gemini API Key",
-    value=os.environ.get("GEMINI_API_KEY", ""),
-    type="password",
-    help="Get your key at https://aistudio.google.com/apikey",
-)
-
-theme: str = st.sidebar.selectbox(
-    "🎨 Output Theme",
-    options=THEMES,
-    index=1,
-    help="Select the color palette for your final Word document.",
+# App Mode Selection
+app_mode = st.sidebar.radio(
+    "Select Operational Screen",
+    options=["📈 Gold Valuation Dashboard", "👥 Sector Teams & Assignments", "📦 Sector Ledger & Logs"]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "<small style='color:#718096;'>Powered by Gemini 2.5 Flash &bull; Future Resume Edition</small>",
-    unsafe_allow_html=True,
+st.sidebar.markdown("### Ledger Parameters")
+
+# Dynamic inputs
+selected_date = st.sidebar.date_input(
+    "Target Date",
+    value=datetime.date(2029, 1, 1),
+    min_value=datetime.date(2029, 1, 1),
+    max_value=datetime.date(2035, 12, 31)
 )
 
-# ============================================================
-# STREAM DATA
-# ============================================================
+currencies = ["INR", "EUR", "GBP", "JPY", "CNY", "CAD", "AUD", "CHF", "SGD", "MYR", "THB", "MXN", "BRL", "KRW", "ZAR"]
+selected_currency = st.sidebar.selectbox("Target Currency", options=currencies)
 
-STREAM_DATA = {
-    "BSc Computer Science / IT": {
-        "roles": [
-            "Software Engineer (Backend)",
-            "Software Engineer (Frontend)",
-            "Full Stack Developer",
-            "Data Scientist / ML Engineer",
-            "Data Analyst",
-            "Cloud Architect / Cloud Engineer",
-            "DevOps Engineer",
-            "Cybersecurity Analyst",
-            "Mobile App Developer (iOS/Android)",
-            "Game Developer",
-            "Blockchain Developer"
-        ],
-        "degree_placeholder": "Bachelor of Science in Computer Science"
-    },
-    "BTech / BEng (Engineering)": {
-        "roles": [
-            "Mechanical Engineer",
-            "Civil Engineer",
-            "Electrical Engineer",
-            "Electronics & Communication Engineer",
-            "Robotics & Automation Engineer",
-            "Embedded Systems Engineer",
-            "Chemical Engineer",
-            "Structural Engineer",
-            "Project Engineer"
-        ],
-        "degree_placeholder": "Bachelor of Technology / Engineering"
-    },
-    "BCom / BBA (Business & Commerce)": {
-        "roles": [
-            "Management Consultant",
-            "Financial Analyst",
-            "Investment Banking Analyst",
-            "Business Analyst",
-            "Marketing Specialist",
-            "Digital Marketing Manager",
-            "HR Specialist / Recruiter",
-            "Operations Associate",
-            "Product Manager"
-        ],
-        "degree_placeholder": "Bachelor of Business Administration / Commerce"
-    },
-    "BSc Accounts (Accounting)": {
-        "roles": [
-            "Financial Auditor",
-            "Management Accountant",
-            "Forensic Accountant",
-            "Tax Consultant",
-            "Corporate Controller"
-        ],
-        "degree_placeholder": "Bachelor of Science in Accounting (BSc Accounts)"
-    },
-    "MBA (Business Administration)": {
-        "roles": [
-            "Management Consultant",
-            "Investment Banking Analyst",
-            "Product Manager",
-            "Strategic Operations Director",
-            "IT Governance Specialist"
-        ],
-        "degree_placeholder": "Master of Business Administration (MBA)"
-    },
-    "BA (Arts & Humanities)": {
-        "roles": [
-            "Content Writer / Strategist",
-            "UX Writer",
-            "Public Relations Specialist",
-            "Policy Analyst",
-            "Journalist / Reporter",
-            "HR Operations Executive",
-            "Social Media Strategist",
-            "Technical Writer"
-        ],
-        "degree_placeholder": "Bachelor of Arts"
-    },
-    "BDes (Design)": {
-        "roles": [
-            "UI/UX Designer",
-            "Product Designer",
-            "Graphic Designer",
-            "Interaction Designer",
-            "Fashion Designer",
-            "Interior Designer",
-            "Creative Director"
-        ],
-        "degree_placeholder": "Bachelor of Design"
-    },
-    "BSc (General & Life Sciences)": {
-        "roles": [
-            "Research Assistant / Scientist",
-            "Biotechnologist",
-            "Bioinformatics Analyst",
-            "Environmental Consultant",
-            "Clinical Research Coordinator",
-            "Lab Technician",
-            "Healthcare Administrator"
-        ],
-        "degree_placeholder": "Bachelor of Science"
-    }
+# Fixed peg dictionary
+currency_rates = {
+    "INR": 46.54,
+    "EUR": 1.06,
+    "GBP": 0.67,
+    "JPY": 114.85,
+    "CNY": 8.28,
+    "CAD": 1.50,
+    "AUD": 1.93,
+    "CHF": 1.62,
+    "SGD": 1.73,
+    "MYR": 3.80,
+    "THB": 43.12,
+    "MXN": 9.60,
+    "BRL": 1.95,
+    "KRW": 1259.00,
+    "ZAR": 7.57
 }
 
-# ============================================================
-# MAIN INPUT AREA
-# ============================================================
+# Fetch rate for current configuration
+gold_rate_usd = 0.0
+gold_rate_target_currency = 0.0
+is_valid_date = False
 
-st.markdown("### 🎓 Academic Stream")
-selected_stream = st.selectbox(
-    "Choose your undergraduate degree stream:",
-    options=list(STREAM_DATA.keys())
+if df is not None:
+    target_dt = pd.to_datetime(selected_date)
+    min_date = df["Date"].min()
+    max_date = df["Date"].max()
+    
+    if min_date <= target_dt <= max_date:
+        row = df[df["Date"] == target_dt]
+        if not row.empty:
+            gold_rate_target_currency = row[selected_currency].values[0]
+            gold_rate_usd = gold_rate_target_currency / currency_rates[selected_currency]
+            is_valid_date = True
+
+# Main Logic Routing
+if df is None:
+    st.error(f"⚠️ Critical System File Missing: {filename} was not found in {current_dir}. Please place the CSV in the same folder as this app.")
+
+else:
+    if not is_valid_date:
+        st.warning(f"⚠️ Survival Alert: Selected date {selected_date} is outside the ledger range ({df['Date'].min().strftime('%Y-%m-%d')} to {df['Date'].max().strftime('%Y-%m-%d')}).")
+    
+    else:
+        if app_mode == "📈 Gold Valuation Dashboard":
+            st.subheader("📈 Gold Standard Economic Valuation")
+            
+            gold_weight_oz = st.number_input("Gold Weight (Troy Ounces)", min_value=0.0, value=1.0, step=0.1)
+            
+            # Gold Conversion Logic
+            grams = gold_weight_oz * 31.1035
+            total_value = gold_rate_target_currency * gold_weight_oz
+            value_per_gram = total_value / grams if grams > 0 else 0
+            
+            # Display Dashboard Metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    label=f"Total Value ({selected_currency})",
+                    value=f"{total_value:,.2f} {selected_currency}"
+                )
+            
+            with col2:
+                st.metric(
+                    label=f"Value per Gram ({selected_currency})",
+                    value=f"{value_per_gram:,.2f} {selected_currency}/g"
+                )
+                
+            with col3:
+                st.metric(
+                    label="Gold Rate (USD)",
+                    value=f"${gold_rate_usd:,.2f} USD/oz"
+                )
+                
+            st.markdown("---")
+            st.subheader(f"Ledger Output for {selected_date.strftime('%B %d, %Y')}")
+            st.write(f"Evaluating `{gold_weight_oz:,.4f} oz` (~`{grams:,.4f} g`) of physical assets using the established gold standard.")
+            
+            # Resource pegs overview
+            st.markdown("### 📋 Survival Sector Base Value Pegs")
+            st.caption("Baseline valuations of resources relative to 1 Troy Ounce of Gold.")
+            
+            pegs_col1, pegs_col2, pegs_col3 = st.columns(3)
+            with pegs_col1:
+                st.write("**Grain / Flour**: 0.002 oz Gold per kg")
+                st.write("**Meat**: 0.004 oz Gold per kg")
+                st.write("**Vegetables**: 0.001 oz Gold per kg")
+            with pegs_col2:
+                st.write("**Electricity**: 0.0005 oz Gold per kWh")
+                st.write("**Fuel**: 0.003 oz Gold per Liter")
+                st.write("**Spices**: 0.005 oz Gold per kg")
+            with pegs_col3:
+                st.write("**Clothes**: 0.004 oz Gold per item")
+                st.write("**Furniture**: 0.01 oz Gold per item")
+                st.write("**Utensils**: 0.001 oz Gold per item")
+
+        elif app_mode == "👥 Sector Teams & Assignments":
+            st.subheader("👥 Kingdom Sector Teams & Group Assignments")
+            
+            # Filters & Search
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                search_query = st.text_input("🔍 Search member or sector team name", "").strip().lower()
+            with col2:
+                filter_resource = st.selectbox("Filter by primary resource/sector", ["All"] + [g["sector"] for g in group_assignments])
+            
+            filtered_groups = []
+            for g in group_assignments:
+                # Filter criteria
+                matches_search = (
+                    search_query in g["name"].lower() or 
+                    search_query in g["sector"].lower() or 
+                    any(search_query in m.lower() for m in g["members"])
+                )
+                matches_resource = (filter_resource == "All" or g["sector"] == filter_resource)
+                
+                if matches_search and matches_resource:
+                    filtered_groups.append(g)
+            
+            # Metrics
+            met1, met2, met3 = st.columns(3)
+            met1.metric("Total Sectors", len(group_assignments))
+            met2.metric("Filtered Sectors", len(filtered_groups))
+            met3.metric("Total Assigned Survivors", sum(len(g["members"]) for g in group_assignments))
+            
+            st.markdown("---")
+            
+            # Display Groups in Grid
+            cols_per_row = 2
+            for i in range(0, len(filtered_groups), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j in range(cols_per_row):
+                    if i + j < len(filtered_groups):
+                        g = filtered_groups[i + j]
+                        with cols[j]:
+                            # Render Group Card HTML
+                            members_html = "".join([
+                                f"<div class='member-item'>• {name} "
+                                f"{'<span class=\'lead-badge\'>👑 Lead</span>' if name == g['lead'] else ''}</div>"
+                                for name in g["members"]
+                            ])
+                            
+                            card_content = f"""
+                            <div class="group-card">
+                                <h3 style="color: #E5C158; margin-top: 0; margin-bottom: 0.5rem;">
+                                    {g['icon']} {g['name']}
+                                </h3>
+                                <p style="color: #888888; font-size: 0.9rem; margin-bottom: 0.8rem;">
+                                    <b>Primary Sector Duty:</b> {g['resource']}
+                                </p>
+                                <div style="margin-bottom: 0.5rem;">
+                                    {members_html}
+                                </div>
+                            </div>
+                            """
+                            st.markdown(card_content, unsafe_allow_html=True)
+
+        elif app_mode == "📦 Sector Ledger & Logs":
+            st.subheader("📦 Off-Grid Sector Ledger Log Simulator")
+            st.write("Record inventory acquisitions or usage, and automatically compute values based on dynamic gold conversion rates on the selected date.")
+            
+            # Resource standard values in Gold (Oz)
+            resource_gold_pegs = {
+                "Gold Assets": 1.0,
+                "Rice & Flour": 0.002,
+                "Spices": 0.005,
+                "Vegetables": 0.001,
+                "Fruits": 0.0012,
+                "Power / Grid": 0.0005,
+                "Fuel / Biofuel": 0.003,
+                "Utensils & Furniture": 0.005,
+                "Apparel & Fabric": 0.004,
+                "Meat / Livestock": 0.004
+            }
+            
+            # Session state initialization for log records
+            if "ledger_logs" not in st.session_state:
+                st.session_state["ledger_logs"] = []
+            
+            # Log Input Form
+            with st.form("ledger_log_form"):
+                st.write("##### Add New Ledger Transaction Record")
+                l_col1, l_col2, l_col3 = st.columns(3)
+                
+                with l_col1:
+                    selected_group = st.selectbox(
+                        "Sector / Logging Group",
+                        options=group_assignments,
+                        format_func=lambda x: f"{x['icon']} {x['name']}"
+                    )
+                with l_col2:
+                    action_type = st.selectbox(
+                        "Action Type",
+                        ["Acquisition / Harvest", "Consumption", "Trade Transfer", "Audit adjustment"]
+                    )
+                with l_col3:
+                    qty = st.number_input("Quantity of Resources", min_value=0.1, value=100.0, step=1.0)
+                
+                notes = st.text_input("Transaction Notes / Memo", placeholder="e.g. Scavenged 20kg of rice, or backup generator operational hours")
+                
+                submit_log = st.form_submit_form_button = st.form_submit_button("📁 Register Log Entry")
+                
+                if submit_log:
+                    # Gold conversion calculation
+                    item_peg = resource_gold_pegs.get(selected_group["resource"], 0.001)
+                    total_gold_oz = qty * item_peg
+                    value_in_target = total_gold_oz * gold_rate_target_currency
+                    value_in_usd = total_gold_oz * gold_rate_usd
+                    
+                    new_entry = {
+                        "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Target Date": selected_date.strftime("%Y-%m-%d"),
+                        "Sector": selected_group["sector"],
+                        "Action": action_type,
+                        "Quantity": qty,
+                        "Primary Resource": selected_group["resource"],
+                        "Gold Equivalent (oz)": total_gold_oz,
+                        f"Value ({selected_currency})": round(value_in_target, 2),
+                        "Value (USD)": round(value_in_usd, 2),
+                        "Log Officer": selected_group["lead"],
+                        "Notes": notes
+                    }
+                    st.session_state["ledger_logs"].append(new_entry)
+                    st.success("Entry added to the off-grid ledger successfully.")
+            
+            # Display Logs
+            st.write("---")
+            st.write("##### 📖 Live Ledger Records")
+            
+            if st.session_state["ledger_logs"]:
+                logs_df = pd.DataFrame(st.session_state["ledger_logs"])
+                st.dataframe(logs_df, use_container_width=True)
+                
+                # Reset Logs Button
+                if st.button("🗑️ Clear Ledger Cache"):
+                    st.session_state["ledger_logs"] = []
+                    st.rerun()
+            else:
+                st.info("No records logged in the current session yet. Use the form above to register inventory activity.")
+
+# Persistent System Status Footer
+st.markdown(
+    f"""
+    <div class="footer">
+        System Baseline: 2001 USD/INR (Pegged at 46.54) | Current Node: Survival Kingdom Primary Core | Last Sync: 2026-06-28
+    </div>
+    """, 
+    unsafe_allow_html=True
 )
-
-st.markdown("### 🎯 Career Goals")
-available_roles = STREAM_DATA[selected_stream]["roles"]
-selected_roles = st.multiselect(
-    f"What do you want to become after you graduate with a {selected_stream}? (Select 1 to 3)",
-    options=available_roles,
-    max_selections=3,
-    placeholder="Choose your target roles..."
-)
-
-st.markdown("")
-build_clicked: bool = st.button("🚀 Generate My Future Resume")
-
-# ============================================================
-# PIPELINE
-# ============================================================
-
-# Initialize session state for resume data
-if "resume_data" not in st.session_state:
-    st.session_state["resume_data"] = None
-
-# ============================================================
-# PIPELINE
-# ============================================================
-
-if build_clicked:
-    # Input validation
-    if not selected_roles:
-        st.warning("⚠️ Please select at least one future career role.")
-        st.stop()
-    if not api_key.strip():
-        st.error("🔑 Please enter your Gemini API Key in the sidebar.")
-        st.stop()
-
-    # Clear previous widget states to allow new AI defaults to load
-    for key in list(st.session_state.keys()):
-        if key.startswith(("edit_", "role_", "company_", "duration_", "achievements_")):
-            del st.session_state[key]
-
-    # Client
-    try:
-        client = get_gemini_client(api_key.strip())
-    except Exception as exc:
-        logger.error("Client init failed: %s", exc)
-        st.error(f"❌ Failed to initialise Gemini client: {exc}")
-        st.stop()
-
-    progress = st.progress(0, text="Initialising pipeline…")
-    status = st.empty()
-
-    # Web Research Grounding Pass
-    progress.progress(5, text="Web Research: Finding the best free courses…")
-    with st.spinner("Searching the web for top free/open-source certifications for your path…"):
-        research_summary = run_research_pass(client, selected_roles, status, selected_stream)
-
-    # Pass 1
-    progress.progress(15, text="Pass 1: Architecting your future resume…")
-    with st.spinner("Building your 3-year career trajectory…"):
-        extracted = run_extraction_pass(
-            client,
-            selected_roles,
-            research_summary,
-            status,
-            selected_stream,
-            STREAM_DATA[selected_stream]["degree_placeholder"]
-        )
-
-    if extracted is None:
-        progress.progress(100, text="Pipeline failed.")
-        st.stop()
-
-    progress.progress(55, text="Pass 1 complete ✓")
-    status.success("✅ Architecture complete.")
-
-    # Pass 2
-    progress.progress(60, text="Pass 2: Polishing vocabulary…")
-    with st.spinner("Elevating resume language to a top-tier standard…"):
-        enhanced = run_enhancement_pass(client, extracted, status)
-
-    progress.progress(85, text="Pass 2 complete ✓")
-    status.success("✅ Enhancement complete.")
-    progress.progress(100, text="Pipeline complete!")
-    status.empty()
-
-    st.session_state["resume_data"] = enhanced
-
-if st.session_state["resume_data"] is not None:
-    st.markdown('<hr class="glow-divider">', unsafe_allow_html=True)
-    st.success("🎉 **Your Future Resume is ready! Review, customize the blanks, and download.**")
-
-    # ── EDITABLE FIELDS ────────────────────────────────────
-    final_data = render_editable_fields(st.session_state["resume_data"])
-    st.session_state["resume_data"] = final_data
-
-    st.markdown('<hr class="glow-divider">', unsafe_allow_html=True)
-
-    # ── PREVIEW ────────────────────────────────────────────
-    render_preview(final_data)
-
-    # ── GENERATE ALL EXPORTS ───────────────────────────────
-    with st.spinner("Building export files…"):
-        try:
-            docx_bytes = generate_docx_bytes(final_data, theme)
-        except Exception as exc:
-            logger.error("DOCX generation failed: %s", exc)
-            st.error(f"❌ DOCX generation failed: {exc}")
-            docx_bytes = b""
-
-        md_content = generate_markdown(final_data)
-        ats_content = generate_ats_text(final_data)
-
-    # ── DOWNLOAD BUTTONS ───────────────────────────────────
-    st.markdown("### 📥 Download Your Masterpiece")
-    dl1, dl2, dl3 = st.columns(3)
-
-    with dl1:
-        if docx_bytes:
-            st.download_button(
-                label="📄 Premium Word Document (.docx)",
-                data=docx_bytes,
-                file_name="Future_Resume.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-
-    with dl2:
-        st.download_button(
-            label="📝 Markdown (.md)",
-            data=md_content.encode("utf-8"),
-            file_name="Future_Resume.md",
-            mime="text/markdown",
-        )
-
-    with dl3:
-        st.download_button(
-            label="📃 ATS Plain Text (.txt)",
-            data=ats_content.encode("utf-8"),
-            file_name="Future_Resume_ATS.txt",
-            mime="text/plain",
-        )
